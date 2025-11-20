@@ -18,7 +18,7 @@ class LotteryGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("🎰 大樂透智慧選號系統")
-        self.root.geometry("850x750")
+        self.root.geometry("900x900")
         self.root.resizable(False, False)
 
         # 設定視窗背景色
@@ -26,6 +26,9 @@ class LotteryGUI:
 
         # 初始化資料庫連接
         self.db_path = 'lottery.db'
+
+        # 儲存當前選號結果（用於歷史對獎）
+        self.current_numbers = None
 
         # 建立 UI
         self.create_widgets()
@@ -60,10 +63,10 @@ class LotteryGUI:
         button_frame = tk.Frame(self.root, bg='#f0f0f0')
         button_frame.pack(pady=20)
 
-        # 智慧選號按鈕
+        # Top30選號按鈕
         smart_button = tk.Button(
             button_frame,
-            text="🎲 智慧選號",
+            text="🎲 Top30選號",
             font=('Helvetica', 18, 'bold'),
             bg='#28a745',
             fg='black',
@@ -75,14 +78,14 @@ class LotteryGUI:
         )
         smart_button.pack(side='left', padx=10)
 
-        # 混合策略選號按鈕
+        # Top20選號按鈕
         mixed_button = tk.Button(
             button_frame,
-            text="🎯 混合策略選號",
+            text="🎯 Top20選號",
             font=('Helvetica', 18, 'bold'),
             bg='#5a67d8',
             fg='black',
-            width=18,
+            width=15,
             height=2,
             relief='raised',
             bd=3,
@@ -90,13 +93,29 @@ class LotteryGUI:
         )
         mixed_button.pack(side='left', padx=10)
 
+        # 歷史對獎按鈕
+        history_button = tk.Button(
+            button_frame,
+            text="🎖️ 歷史對獎",
+            font=('Helvetica', 18, 'bold'),
+            bg='#f59e0b',
+            fg='black',
+            width=15,
+            height=2,
+            relief='raised',
+            bd=3,
+            command=self.history_check
+        )
+        history_button.pack(side='left', padx=10)
+
         # 說明文字
         info_frame = tk.Frame(self.root, bg='#e0e7ff', bd=2, relief='solid')
         info_frame.pack(fill='x', padx=20, pady=10)
 
         info_text = (
-            "📌 智慧選號：從 Top 30 最常出現號碼中隨機選取 6 個\n"
-            "📌 混合策略：熱號3個 + 冷號2個 + 驚喜號1個"
+            "📌 Top30選號：從 Top 30 最常出現號碼中隨機選取 6 個\n"
+            "📌 Top20選號：從 Top 20 最常出現號碼中隨機選取 6 個\n"
+            "📌 歷史對獎：比對已選號碼與歷年開獎記錄"
         )
         info_label = tk.Label(
             info_frame,
@@ -168,6 +187,53 @@ class LotteryGUI:
             justify='left'
         )
         self.summary_label.pack(fill='x', pady=(10, 0))
+
+        # 對獎結果顯示區（初始隱藏）
+        self.check_result_frame = tk.Frame(result_frame, bg='#f0f0f0')
+
+        # 對獎統計摘要標籤
+        self.check_summary_label = tk.Label(
+            self.check_result_frame,
+            text="",
+            font=('Helvetica', 11, 'bold'),
+            bg='#d1fae5',
+            fg='#065f46',
+            relief='solid',
+            bd=1,
+            padx=10,
+            pady=8,
+            justify='left'
+        )
+        self.check_summary_label.pack(fill='x', pady=(10, 5))
+
+        # 對獎記錄表格
+        check_table_frame = tk.Frame(self.check_result_frame, bg='white', relief='solid', bd=2)
+        check_table_frame.pack(fill='both', expand=True)
+
+        # 建立對獎 Treeview
+        check_columns = ('期別', '開獎日期', '對中數量', '對中號碼')
+        self.check_tree = ttk.Treeview(
+            check_table_frame,
+            columns=check_columns,
+            show='headings',
+            height=6
+        )
+
+        # 設定欄位寬度和標題
+        self.check_tree.column('期別', width=120, anchor='center')
+        self.check_tree.column('開獎日期', width=140, anchor='center')
+        self.check_tree.column('對中數量', width=100, anchor='center')
+        self.check_tree.column('對中號碼', width=400, anchor='center')
+
+        for col in check_columns:
+            self.check_tree.heading(col, text=col)
+
+        # 滾動條
+        check_scrollbar = ttk.Scrollbar(check_table_frame, orient='vertical', command=self.check_tree.yview)
+        self.check_tree.configure(yscrollcommand=check_scrollbar.set)
+
+        self.check_tree.pack(side='left', fill='both', expand=True)
+        check_scrollbar.pack(side='right', fill='y')
 
     def get_all_numbers_stats(self) -> List[Dict]:
         """從資料庫獲取所有號碼統計資料"""
@@ -274,7 +340,7 @@ class LotteryGUI:
                 if number_types and num in number_types:
                     num_type = number_types[num]
                 else:
-                    num_type = '智慧選號'
+                    num_type = 'Top30選號'
 
                 self.tree.insert('', 'end', values=(
                     f"{num:02d}",
@@ -285,7 +351,7 @@ class LotteryGUI:
                 ))
 
     def smart_pick(self):
-        """智慧選號（Top 30 策略）"""
+        """Top30選號（從 Top 30 熱門號碼中隨機選取 6 個）"""
         all_stats = self.get_all_numbers_stats()
 
         if not all_stats:
@@ -302,6 +368,9 @@ class LotteryGUI:
         stats_dict = {stat['number']: stat for stat in all_stats}
         avg_prob = sum(stats_dict[n]['probability'] for n in selected) / len(selected)
 
+        # 儲存當前選號（用於歷史對獎）
+        self.current_numbers = selected
+
         # 繪製號碼球（全紅色）
         self.draw_number_balls(selected)
 
@@ -310,69 +379,164 @@ class LotteryGUI:
 
         # 更新摘要
         summary_text = (
-            f"📊 智慧選號結果\n"
+            f"📊 Top30選號結果\n"
             f"平均出現機率: {avg_prob:.2f}% | 策略: 從 Top 30 最熱門號碼中選取\n"
             f"⚠️ 注意：此選號方式不會改變中獎機率（1/13,983,816）"
         )
         self.summary_label.config(text=summary_text)
 
     def mixed_pick(self):
-        """混合策略選號"""
+        """Top20選號（從 Top 20 熱門號碼中隨機選取 6 個）"""
         all_stats = self.get_all_numbers_stats()
 
         if not all_stats:
             messagebox.showerror("錯誤", "無法讀取資料")
             return
 
-        # 定義號碼池
-        hot_numbers = [stat['number'] for stat in all_stats[:15]]  # Top 15
-        cold_numbers = [stat['number'] for stat in all_stats if stat['probability'] < 11.5]
+        # 取得 Top 20
+        top_20 = [stat['number'] for stat in all_stats[:20]]
 
-        # 選號
-        selected_hot = random.sample(hot_numbers, 3)
-        selected_cold = random.sample(cold_numbers, 2)
-
-        # 驚喜號
-        available = [n for n in range(1, 50) if n not in selected_hot + selected_cold]
-        selected_surprise = [random.choice(available)]
-
-        # 合併並排序
-        all_selected = sorted(selected_hot + selected_cold + selected_surprise)
-
-        # 建立類型映射和顏色映射
-        number_types = {}
-        colors = {}
-
-        for num in selected_hot:
-            number_types[num] = '🔴 熱號'
-            colors[num] = '#ff6b6b'
-
-        for num in selected_cold:
-            number_types[num] = '🔵 冷號'
-            colors[num] = '#4facfe'
-
-        for num in selected_surprise:
-            number_types[num] = '🟡 驚喜號'
-            colors[num] = '#ffd700'
+        # 隨機選取 6 個
+        selected = sorted(random.sample(top_20, 6))
 
         # 計算平均機率
         stats_dict = {stat['number']: stat for stat in all_stats}
-        avg_prob = sum(stats_dict[n]['probability'] for n in all_selected) / len(all_selected)
+        avg_prob = sum(stats_dict[n]['probability'] for n in selected) / len(selected)
 
-        # 繪製彩色號碼球
-        self.draw_number_balls(all_selected, colors)
+        # 儲存當前選號（用於歷史對獎）
+        self.current_numbers = selected
+
+        # 繪製號碼球（使用藍紫色）
+        colors = {num: '#5a67d8' for num in selected}
+        self.draw_number_balls(selected, colors)
 
         # 更新表格
-        self.update_table(all_selected, number_types)
+        self.update_table(selected)
 
         # 更新摘要
         summary_text = (
-            f"🎯 混合策略選號結果\n"
-            f"平均出現機率: {avg_prob:.2f}% | "
-            f"🔴 熱號 {len(selected_hot)} 個 | 🔵 冷號 {len(selected_cold)} 個 | 🟡 驚喜號 {len(selected_surprise)} 個\n"
+            f"🎯 Top20選號結果\n"
+            f"平均出現機率: {avg_prob:.2f}% | 策略: 從 Top 20 最熱門號碼中選取\n"
             f"⚠️ 注意：此選號方式不會改變中獎機率（1/13,983,816）"
         )
         self.summary_label.config(text=summary_text)
+
+    def history_check(self):
+        """歷史對獎功能：比對已選號碼與歷史開獎記錄"""
+        # 檢查是否有選號結果
+        if self.current_numbers is None:
+            messagebox.showinfo(
+                "提示",
+                "請先使用「Top30選號」或「Top20選號」產生號碼後，再進行歷史對獎。"
+            )
+            return
+
+        # 清空對獎表格
+        for item in self.check_tree.get_children():
+            self.check_tree.delete(item)
+
+        try:
+            # 連接資料庫
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # 查詢所有大樂透開獎記錄和主號碼
+            query = """
+            SELECT
+                d.draw_number,
+                d.draw_date,
+                GROUP_CONCAT(n.number) as numbers
+            FROM lottery_draws d
+            JOIN lottery_numbers n ON d.id = n.draw_id
+            WHERE d.game_type = '大樂透' AND n.number_type = 'main'
+            GROUP BY d.id, d.draw_number, d.draw_date
+            ORDER BY d.draw_date DESC
+            """
+
+            cursor.execute(query)
+            results = cursor.fetchall()
+
+            # 統計資料
+            total_draws = len(results)
+            matches_count = {2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+            max_match = 0
+            match_records = []
+
+            # 比對每期開獎號碼
+            for draw_number, draw_date, numbers_str in results:
+                # 將開獎號碼字串轉換為整數列表
+                draw_numbers = [int(n) for n in numbers_str.split(',')]
+
+                # 計算對中數量
+                matched = set(self.current_numbers) & set(draw_numbers)
+                match_count = len(matched)
+
+                # 更新最大對中數
+                if match_count > max_match:
+                    max_match = match_count
+
+                # 統計各對中數量
+                if match_count >= 2:
+                    if match_count in matches_count:
+                        matches_count[match_count] += 1
+
+                    # 儲存對中記錄（只顯示對中2個以上）
+                    match_records.append({
+                        'draw_number': draw_number,
+                        'draw_date': draw_date,
+                        'match_count': match_count,
+                        'matched_numbers': sorted(matched)
+                    })
+
+            conn.close()
+
+            # 按對中數量降序、開獎日期降序排序
+            match_records.sort(key=lambda x: (x['match_count'], x['draw_date']), reverse=True)
+
+            # 更新對獎統計摘要
+            summary_text = (
+                f"🎖️ 歷史對獎結果\n"
+                f"您的號碼: {', '.join([f'{n:02d}' for n in self.current_numbers])} | "
+                f"總比對期數: {total_draws} 期 | 最高對中: {max_match} 個號碼\n"
+                f"對中統計: "
+            )
+
+            # 添加統計詳情
+            stats_parts = []
+            for count in [6, 5, 4, 3, 2]:
+                if matches_count[count] > 0:
+                    stats_parts.append(f"{count}個={matches_count[count]}期")
+
+            if stats_parts:
+                summary_text += " | ".join(stats_parts)
+            else:
+                summary_text += "無符合記錄（對中數 < 2）"
+
+            self.check_summary_label.config(text=summary_text)
+
+            # 更新對獎表格（只顯示對中2個以上的記錄）
+            for record in match_records:
+                matched_str = ', '.join([f'{n:02d}' for n in record['matched_numbers']])
+                self.check_tree.insert('', 'end', values=(
+                    record['draw_number'],
+                    record['draw_date'],
+                    f"{record['match_count']} 個",
+                    matched_str
+                ))
+
+            # 顯示對獎結果區域
+            self.check_result_frame.pack(fill='both', expand=True, pady=(10, 0))
+
+            # 如果沒有對中2個以上的記錄，顯示提示
+            if not match_records:
+                messagebox.showinfo(
+                    "對獎結果",
+                    f"很遺憾，您的號碼在歷史 {total_draws} 期中，\n"
+                    f"最多只對中 {max_match} 個號碼，未達到最低中獎門檻（3個號碼）。"
+                )
+
+        except Exception as e:
+            messagebox.showerror("錯誤", f"對獎過程發生錯誤：{str(e)}")
 
 
 def main():
